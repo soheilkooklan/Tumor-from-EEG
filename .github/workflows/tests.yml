@@ -1,0 +1,41 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy scipy pandas scikit-learn PyWavelets PyYAML matplotlib pytest
+
+      - name: Estimator correctness
+        run: pytest tests/test_features.py -q
+
+      - name: Leakage regression
+        # This job is the reason the suite exists. Version 1 reported ROC-AUC
+        # 0.96 on label-free data; if grouping leakage ever returns, this fails.
+        run: pytest tests/test_leakage.py -q
+
+      - name: End-to-end negative control
+        run: |
+          python examples/make_demo_cohort.py --out /tmp/null --effect 0.0 --subjects 12
+          python -m eegtumor.cli audit --manifest /tmp/null/cohort.csv
