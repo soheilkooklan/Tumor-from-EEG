@@ -1,0 +1,107 @@
+preprocessing:
+  target_sampling_rate: 250.0
+  highpass: 0.5
+  lowpass: 45.0
+  filter_order: 4
+  filter_design: butter
+  notch_freq: 50.0
+  notch_quality: 30.0
+  notch_harmonics: 1
+  wavelet_denoise: false
+  wavelet: db4
+  wavelet_level: 4
+  amplitude_normalization: none
+  epoch_seconds: 8.0
+  epoch_overlap: 0.0
+  max_epochs_per_recording: 60
+  reject_flat_ratio: 0.3
+  reject_clipping_ratio: 0.02
+  reject_amplitude_uv: 500.0
+  reject_muscle_ratio: 0.6
+  min_good_epochs: 3
+  reference: average
+bands:
+  bands:
+    delta:
+    - 0.5
+    - 4.0
+    theta:
+    - 4.0
+    - 8.0
+    alpha:
+    - 8.0
+    - 13.0
+    beta:
+    - 13.0
+    - 30.0
+    gamma:
+    - 30.0
+    - 45.0
+  ratios:
+    theta_alpha:
+    - - theta
+    - - alpha
+    delta_alpha:
+    - - delta
+    - - alpha
+    slowing_index:
+    - - delta
+      - theta
+    - - alpha
+      - beta
+    theta_beta:
+    - - theta
+    - - beta
+features:
+  domains:
+  - time
+  - spectral
+  - time_frequency
+  - entropy
+  - complexity
+  psd_method: multitaper
+  psd_window_seconds: 4.0
+  psd_overlap: 0.5
+  n_tapers: 5
+  aperiodic_range:
+  - 2.0
+  - 40.0
+  tf_wavelet: db4
+  tf_level: 5
+  sampen_m: 2
+  sampen_r: 0.2
+  permutation_order: 3
+  permutation_delay: 1
+  multiscale_scales:
+  - 1
+  - 2
+  higuchi_kmax: 10
+  dfa_min_scale: 8
+  dfa_max_scale_frac: 0.1
+selection:
+  enabled: true
+  drop_zero_variance: true
+  variance_threshold: 1.0e-10
+  correlation_threshold: 0.95
+  mutual_information_keep: null
+  embedded_method: elasticnet
+  max_features: 30
+  stability_repeats: 20
+  stability_threshold: 0.6
+validation:
+  grouping: subject
+  outer_folds: 5
+  inner_folds: 3
+  n_repeats: 5
+  random_state: 42
+  optimisation: optuna
+  n_trials: 40
+  scoring: roc_auc
+  calibration: sigmoid
+  aggregation: trimmed_mean
+  bootstrap_iterations: 2000
+  permutation_tests: 200
+  alpha: 0.05
+task_name: abnormality-screening
+positive_class_label: positive
+negative_class_label: negative
