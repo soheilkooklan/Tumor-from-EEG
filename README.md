@@ -3,7 +3,7 @@
 **A reproducible workbench for quantitative EEG biomarker extraction and honest
 machine-learning evaluation**
 
-[![tests](https://github.com/soheilkooklan/Tumor-from-EEG/.github/workflows/tests.yml/badge.svg)](https://github.com/soheilkooklan/Tumor-from-EEG/.github/workflows/tests.yml) 
+[![tests](https://github.com/soheilkooklan/Tumor-from-EEG/Action/.github/workflows/tests.yml/badge.svg)](https://github.com/soheilkooklan/Tumor-from-EEG/Action/.github/workflows/tests.yml) 
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![licence](https://img.shields.io/badge/licence-PolyForm%20Noncommercial%201.0.0-lightgrey)
 
