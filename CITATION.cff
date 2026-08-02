@@ -7,7 +7,7 @@ type: software
 authors:
   - family-names: Kooklan
     given-names: Soheil
-    orcid: 'https://orcid.org/0000-0000-0000-0000'
+    orcid: 'https://orcid.org/0009-0003-5035-7833'
 repository-code: 'https://github.com/soheilkooklan/Tumor-from-EEG'
 abstract: >-
   Research software for quantitative EEG (qEEG) biomarker extraction and honest
