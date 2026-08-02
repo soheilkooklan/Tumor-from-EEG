@@ -1,0 +1,34 @@
+PLACEHOLDER — replace this file before publishing.
+
+This project (version 2.0.0 onward) is licensed under the
+PolyForm Noncommercial License 1.0.0.
+
+The canonical text must be downloaded rather than transcribed, so that the
+legal wording is byte-exact:
+
+    curl -o LICENSE https://raw.githubusercontent.com/polyformproject/polyform-licenses/1.0.0/PolyForm-Noncommercial-1.0.0.md
+
+Then insert the following line near the top of the downloaded file, directly
+under the title, as the licence's "Notices" section requires:
+
+    Required Notice: Copyright Soheil Kooklan (https://github.com/soheilkooklan)
+
+Summary of the terms (not a substitute for reading them):
+
+  - Free to use, modify and redistribute for any NONCOMMERCIAL purpose.
+  - Explicitly permitted: personal study, research, teaching, hobby projects,
+    and use by charitable organisations, educational institutions, public
+    research organisations, public health and safety organisations, and
+    government institutions - regardless of how they are funded.
+  - Commercial use requires a separate licence from the copyright holder.
+  - No warranty; no liability.
+  - Anyone you give a copy to must also receive these terms and the Required
+    Notice above.
+
+Note: a noncommercial licence is NOT OSI-approved open source. GitHub will
+display this repository's licence as "Other".
+
+Version 1 of this project was released under the MIT licence and remains under
+it. That grant is irrevocable for the code it covered; see LICENSE-v1-MIT.txt.
+
+This software is not a medical device. See DISCLAIMER.md.

@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+title: >-
+  Tumor-from-EEG: a reproducible workbench for quantitative EEG biomarker
+  extraction and subject-disjoint machine-learning evaluation
+message: If you use this software, please cite it as below.
+type: software
+authors:
+  - family-names: Kooklan
+    given-names: Soheil
+    orcid: 'https://orcid.org/0000-0000-0000-0000'
+repository-code: 'https://github.com/soheilkooklan/Tumor-from-EEG'
+abstract: >-
+  Research software for quantitative EEG (qEEG) biomarker extraction and honest
+  machine-learning evaluation. Computes 81 documented biomarkers across time,
+  spectral, time-frequency, entropy and complexity domains, applies staged
+  feature selection with stability analysis, and evaluates classifiers under
+  repeated subject-disjoint nested cross-validation with probability
+  calibration, bootstrap confidence intervals and paired significance testing.
+  Not a medical device; the brain-tumour application is an untested hypothesis,
+  as no public EEG dataset with imaging-confirmed tumour labels exists.
+keywords:
+  - EEG
+  - quantitative EEG
+  - biomarkers
+  - machine learning
+  - reproducibility
+  - data leakage
+  - cross-validation
+  - explainable AI
+license: PolyForm-Noncommercial-1.0.0
+version: 2.0.0
+date-released: '2026-08-01'

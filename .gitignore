@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Test / tooling
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Analysis output. Runs are reproducible from the manifest + config, so the
+# artefacts themselves do not belong in version control - and EEG derivatives
+# can be re-identifiable.
+results/
+runs/
+demo_data/
+demo_null/
+*.edf
+*.bdf
+!examples/**/*.edf
+
+# OS
+.DS_Store
+Thumbs.db

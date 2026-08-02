@@ -1,0 +1,28 @@
+# --- core: required to run anything -----------------------------------------
+numpy>=1.24
+scipy>=1.10
+pandas>=2.0
+scikit-learn>=1.3
+PyWavelets>=1.4
+PyYAML>=6.0
+matplotlib>=3.7
+
+# --- reading clinical formats -----------------------------------------------
+mne>=1.5                 # EDF / BDF
+
+# --- modelling and validation (Part 5) --------------------------------------
+optuna>=3.4              # hyper-parameter search
+statsmodels>=0.14        # McNemar, confidence intervals
+
+# --- optional model families ------------------------------------------------
+xgboost>=2.0
+lightgbm>=4.0
+
+# --- explainability ---------------------------------------------------------
+shap>=0.44
+
+# --- GUI --------------------------------------------------------------------
+customtkinter>=5.2
+
+# --- development ------------------------------------------------------------
+pytest>=7.4
