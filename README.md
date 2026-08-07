@@ -3,13 +3,13 @@
 **A reproducible workbench for quantitative EEG biomarker extraction and honest
 machine-learning evaluation**
 
+[![DOI](https://zenodo.org/badge/876378988.svg)](https://doi.org/10.5281/zenodo.21762150)
 [![tests](https://github.com/soheilkooklan/Tumor-from-EEG/actions/workflows/tests.yml/badge.svg)](https://github.com/soheilkooklan/Tumor-from-EEG/actions/workflows/tests.yml)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![licence](https://img.shields.io/badge/licence-PolyForm%20Noncommercial%201.0.0-lightgrey)
-[![DOI](https://zenodo.org/badge/876378988.svg)](https://doi.org/10.5281/zenodo.21762150)
 
 > **Research software — not a medical device.** This tool cannot diagnose a
-> brain tumour and must not inform any clinical decision. Please read
+> brain tumour and must not inform any clinical decision. Parts of this project's UI and documentation were developed with AI assistance. Please read
 > [DISCLAIMER.md](DISCLAIMER.md) before anything else.
 
 ---
