@@ -7,7 +7,7 @@ dist/
 .venv/
 venv/
 
-# Test / tooling
+# Test/tooling
 .pytest_cache/
 .coverage
 htmlcov/
