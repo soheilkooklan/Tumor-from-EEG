@@ -33,9 +33,11 @@ The standard benchmark for binary normal/abnormal EEG classification. Roughly
 with an official train/evaluation split with **no subject overlap**, which is
 exactly the property this pipeline is built around.
 
-Published performance on TUAB sits around 85–89 % accuracy. That number is worth
-internalising as a sanity anchor: it is the state of the art on a *much easier*
-task, with a hundred times more data than a typical tumour study. Any claim of
+Published accuracy on the TUAB evaluation split mostly falls between about
+75 and 90 %, with a few recent reports a little above 90 % (Zhu, Canham and
+Western, 2023, arXiv:2303.06386, which tabulates earlier results). That range
+is worth keeping as a sanity anchor: it is the state of the art on a *much
+easier* task, with a hundred times more data than a typical tumour study. Any claim of
 95 %+ on EEG tumour detection from 40 recordings should be treated as a leakage
 report until proven otherwise.
 

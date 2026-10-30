@@ -88,6 +88,19 @@ def save_figure(fig, outdir: Path, name: str, formats=("png", "pdf")) -> List[Pa
 # Individual figures
 # ---------------------------------------------------------------------------
 
+def _count_label(results) -> str:
+    """'n = 62 recordings x 2 repeats' rather than the pooled row count."""
+    if not results:
+        return "n = 0 recordings"
+    res = next(iter(results.values()))
+    recs = np.asarray(res.pooled_recordings)
+    unique = np.unique(recs).size
+    repeats = int(round(recs.size / unique)) if unique else 0
+    if repeats > 1:
+        return f"n = {unique} recordings x {repeats} repeats, pooled"
+    return f"n = {unique} recordings"
+
+
 def plot_roc(results: Dict[str, "object"], title: str = "ROC (out-of-fold, recording level)"):
     from sklearn.metrics import roc_curve
     plt = _mpl()
@@ -100,10 +113,9 @@ def plot_roc(results: Dict[str, "object"], title: str = "ROC (out-of-fold, recor
             lab += f" [{ci[1]:.2f}-{ci[2]:.2f}]"
         ax.plot(fpr, tpr, color=PALETTE[i % len(PALETTE)], label=lab)
     ax.plot([0, 1], [0, 1], "--", color="0.6", lw=1, label="chance")
-    n = len(next(iter(results.values())).pooled_labels) if results else 0
     ax.set_xlabel("1 - specificity")
     ax.set_ylabel("Sensitivity")
-    ax.set_title(f"{title}\nn = {n} recordings")
+    ax.set_title(f"{title}\n{_count_label(results)}")
     ax.legend(loc="lower right", fontsize=7)
     ax.set_xlim(-0.02, 1.02); ax.set_ylim(-0.02, 1.02)
     return fig
@@ -374,7 +386,8 @@ def write_html_report(outdir: Path, cfg, cohort_summary: dict,
         {"setting": "Repeats", "value": str(v.n_repeats)},
         {"setting": "Inner loop", "value": f"{v.inner_folds}-fold, {v.optimisation} "
                                            f"({v.n_trials} trials)"},
-        {"setting": "Calibration", "value": str(v.calibration)},
+        {"setting": "Calibration", "value": f"{v.calibration} (subject-disjoint folds)"
+                                            if v.calibration else "none"},
         {"setting": "Aggregation", "value": v.aggregation},
         {"setting": "Epoch", "value": f"{cfg.preprocessing.epoch_seconds} s at "
                                       f"{cfg.preprocessing.target_sampling_rate} Hz"},

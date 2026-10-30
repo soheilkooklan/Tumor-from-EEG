@@ -121,7 +121,7 @@ the right addition — not a bolt-on to this feature pipeline.
 should come from `python -m eegtumor.cli run` with a version-controlled config,
 not from a sequence of clicks.
 
-**Tests validate the estimators and the protocol, not the science.** 32 tests
+**Tests validate the estimators and the protocol, not the science.** 40 tests
 check that Higuchi FD returns 2.0 on white noise and that grouped CV returns
 chance on label-free data. No test can check that your cohort means what you
 think it means.

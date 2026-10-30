@@ -18,8 +18,8 @@ individual's spectral fingerprint. Treated as independent samples and split at
 random, they let a model identify the *person* and score well without having
 learned anything about the *pathology*. Saeb et al. (2017) named this the
 "subject-wise vs record-wise" error and showed multi-fold accuracy inflation in
-published health-sensing work; Kapoor and Narayanan (2023) find it to be the
-single most common leakage type across ML-based science.
+published health-sensing work; Kapoor and Narayanan (2023) list it among the
+leakage types they found across ML-based science.
 
 The design decision here is that `subject_id` is a required field, not an
 optional one. A file that cannot be attributed to a subject cannot be used for

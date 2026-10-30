@@ -19,7 +19,7 @@ independent samples and split at random across cross-validation folds, a
 classifier can score highly by recognising *which person* a row came from,
 without having learned anything about the condition being studied. Saeb et al.
 (2017) named this the record-wise versus subject-wise error; Kapoor and
-Narayanan (2023) found it to be the most common form of leakage across
+Narayanan (2023) list it among the leakage types they found across
 machine-learning-based science.
 
 **Protocol.** All cross-validation is subject-disjoint. Splitting uses
@@ -27,7 +27,9 @@ machine-learning-based science.
 epoch and channel belonging to one person falls entirely inside one fold. A
 `subject_id` is mandatory in the cohort manifest and a recording without one is
 rejected at load time. `ValidationConfig.grouping` accepts only `"subject"` or
-`"recording"`; there is no setting that disables grouping.
+`"recording"`; there is no setting that disables grouping, and `"recording"` is
+refused when any subject has more than one recording, because then it would put
+one person on both sides of a fold.
 
 **Verification.** `tests/test_leakage.py` builds a synthetic cohort with
 subject-level structure and labels drawn independently of the signal, and
@@ -209,15 +211,23 @@ nothing beats it, that is the result to report.
 **Nested cross-validation.** Hyper-parameters are tuned by Optuna in an inner
 subject-disjoint loop; performance is estimated on the outer fold, which the
 tuning never saw. Selecting the best model by cross-validated score and then
-reporting that same score — the version 1 behaviour — is selection on the test
-set and is optimistically biased.
+reporting that same score, which is what version 1 did, is selection on the
+test set and is optimistically biased. The choice between model families is not
+inside the inner loop. Every family is reported with its own outer-fold score,
+and the family shown in the confusion matrix and SHAP figures is the one with
+the highest outer-fold ROC-AUC, so that one number carries the choice. The HTML
+report says so. For a confirmatory analysis, name one model in advance with
+`--models`.
 
 **Repeats.** The whole outer loop is repeated with different seeds. Reported
 performance is the mean across repeats with its standard deviation, because a
 single fold split on a small cohort is close to a coin toss.
 
 **Calibration.** Probabilities are calibrated with Platt scaling by default.
-Isotonic regression is available but overfits below roughly 1000 samples.
+Isotonic regression is available but overfits below roughly 1000 samples. The
+calibration folds inside each training fold are subject-disjoint as well. In
+version 2.0 they were row-level, so the held-out scores the sigmoid was fitted
+on came from subjects the model had partly seen.
 
 **Aggregation.** Epoch/channel probabilities are collapsed to one score per
 recording by trimmed mean (default), median, mean or max. The dispersion across
@@ -233,12 +243,20 @@ prevalence.
 
 ### Inference
 
-- **Confidence intervals** by bootstrap over recordings.
+- **Confidence intervals** by percentile bootstrap over subjects, not rows or
+  recordings, because rows from one subject are correlated.
 - **DeLong's test** for paired ROC-AUC differences between models on the same
   recordings.
 - **McNemar's test** for paired differences in classification decisions.
-- **Permutation test** with labels shuffled *at subject level*, giving an
-  empirical null for the whole pipeline including selection.
+- **Permutation test** (optional, `--permutations N`) with labels shuffled
+  *at subject level*, giving an empirical null for the outer cross-validation
+  including selection and calibration. Each permutation is a full
+  cross-validation run, so tuning is switched off and one repeat is used, for
+  the observed score as well as the permuted ones. The observed value it
+  reports is therefore not the headline score of the run. Do not use
+  scikit-learn's `permutation_test_score` with `groups` for this: it permutes
+  labels within groups, and when the label is constant inside each subject
+  that permutation changes nothing.
 
 Report the interval, not just the point estimate. On a 20-subject cohort a
 95 % CI on AUC routinely spans 0.4 — that width is the finding.

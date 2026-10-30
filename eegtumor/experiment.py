@@ -42,7 +42,8 @@ from .reporting import (plot_calibration, plot_confusion, plot_feature_importanc
                         plot_model_comparison, plot_pr, plot_roc, plot_stability,
                         save_figure, write_html_report)
 from .selection import selection_stability
-from .validation import delong_test, nested_cross_validate
+from .validation import (delong_test, nested_cross_validate, permutation_null,
+                         split_groups)
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ class RunArtifacts:
     explanation: object = None
     comparisons: List[dict] = field(default_factory=list)
     report_path: Optional[Path] = None
+    permutation: Optional[dict] = None
 
 
 def _emit(progress: Progress, frac: float, msg: str) -> None:
@@ -131,7 +133,7 @@ def run_analysis(manifest: str, cfg: AnalysisConfig, outdir: str,
     _write_csv(out / "feature_dictionary.csv", feature_dictionary(cfg))
 
     y = np.array([int(r["label"]) for r in index])
-    groups = np.array([r["subject_id"] for r in index])
+    groups = split_groups(index, cfg.validation.grouping)
 
     _emit(progress, 0.55, "nested cross-validation")
     results = nested_cross_validate(
@@ -144,10 +146,24 @@ def run_analysis(manifest: str, cfg: AnalysisConfig, outdir: str,
     stability = selection_stability(X, y, groups, names, cfg.selection,
                                     cfg.validation.random_state)
 
+    null = None
+    if cfg.validation.permutation_tests > 0:
+        model = cfg.validation.permutation_model
+        _emit(progress, 0.87, f"permutation null ({cfg.validation.permutation_tests} "
+                              f"permutations, {model})")
+        null = permutation_null(X, index, cfg, names, model,
+                                cfg.validation.permutation_tests,
+                                cfg.validation.random_state)
+        (out / "permutation_null.json").write_text(json.dumps(null, indent=2))
+
+    # The family shown in the confusion matrix and explained below is picked on
+    # outer-fold ROC-AUC, so its score carries that selection. Fine for
+    # exploration; for a confirmatory claim name one model in advance.
     best = max(results, key=lambda k: results[k].mean("roc_auc"))
     _emit(progress, 0.90, f"explaining {best}")
     final = calibrate(build_pipeline(best, cfg, names), X, y,
-                      cfg.validation.calibration)
+                      cfg.validation.calibration, groups=groups,
+                      random_state=cfg.validation.random_state)
     explanation = explain_model(final, X, names,
                                 random_state=cfg.validation.random_state)
 
@@ -171,26 +187,41 @@ def run_analysis(manifest: str, cfg: AnalysisConfig, outdir: str,
     _write_csv(out / "metrics.csv", [
         {"model": n, **{k: round(v, 4) for k, v in r.pooled_metrics.items()},
          "roc_auc_mean": round(r.mean("roc_auc"), 4),
-         "roc_auc_sd": round(r.std("roc_auc"), 4)}
+         "roc_auc_sd": round(r.std("roc_auc"), 4),
+         **{f"{m}_ci_{side}": round(ci[i], 4)
+            for m, ci in r.confidence_intervals.items()
+            for i, side in ((1, "low"), (2, "high"))}}
         for n, r in results.items()])
     _write_csv(out / "feature_stability.csv", stability.table())
     if comparisons:
         _write_csv(out / "model_comparisons.csv", comparisons)
 
+    notes = [f"The model shown in the confusion matrix and SHAP figures ({best}) "
+             f"was chosen by outer-fold ROC-AUC among {len(results)} families, so "
+             f"its score is optimistic by that choice. Pre-specify one model for a "
+             f"confirmatory analysis."]
+    if comparisons:
+        notes.append("Pairwise DeLong comparisons: " +
+                     "; ".join(f"{c['model_a']} vs {c['model_b']} "
+                               f"p={c['p_value']:.3f}" for c in comparisons))
+    if null is not None and null.get("n_permutations", 0):
+        notes.append(f"Subject-level permutation null ({null['model']}, "
+                     f"{null['n_permutations']} permutations, no tuning, one repeat): "
+                     f"observed ROC-AUC {null['observed']:.3f}, null mean "
+                     f"{null['null_mean']:.3f}, p = {null['p_value']:.3f}.")
+
     report = write_html_report(
         out, cfg, summary, warnings_, results, stability, explanation,
-        feature_dictionary(cfg), figs,
-        extra_notes=[f"Pairwise DeLong comparisons: " +
-                     "; ".join(f"{c['model_a']} vs {c['model_b']} "
-                               f"p={c['p_value']:.3f}" for c in comparisons)]
-        if comparisons else None)
+        feature_dictionary(cfg), figs, extra_notes=notes)
 
     _emit(progress, 1.0, f"done -> {out}")
     import matplotlib.pyplot as plt
     plt.close("all")
 
-    return RunArtifacts(out, cfg, summary, warnings_, X, index, names,
-                        results, stability, explanation, comparisons, report)
+    art = RunArtifacts(out, cfg, summary, warnings_, X, index, names,
+                       results, stability, explanation, comparisons, report)
+    art.permutation = null
+    return art
 
 
 # ---------------------------------------------------------------------------

@@ -493,12 +493,15 @@ class TumorFromEEGApp(ctk.CTk):
             return
         from .features import extract_recording_features
         from .modeling import aggregate_scores, build_pipeline, calibrate
+        from .validation import split_groups
 
         art = self.artifacts
         y = np.array([int(r["label"]) for r in art.index])
+        groups = split_groups(art.index, self.cfg.validation.grouping)
         best = max(art.results, key=lambda k: art.results[k].mean("roc_auc"))
         model = calibrate(build_pipeline(best, self.cfg, art.feature_names),
-                          art.X, y, self.cfg.validation.calibration)
+                          art.X, y, self.cfg.validation.calibration, groups=groups,
+                          random_state=self.cfg.validation.random_state)
 
         self._log(self.screen_log, "\n" + "=" * 60 + f"\nSCREENING ({best})\n" + "=" * 60 + "\n")
         for rec in self._screening:

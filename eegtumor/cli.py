@@ -10,6 +10,7 @@ command rather than a sequence of mouse clicks:
 Subcommands
 -----------
 run       full analysis: features -> nested CV -> figures -> report
+          (--permutations N adds a subject-level permutation null)
 audit     load a cohort and print only the design audit (fast sanity check)
 features  extract the biomarker table and stop
 dict      print the feature dictionary as CSV
@@ -46,6 +47,8 @@ def main(argv=None) -> int:
     r.add_argument("--data-root")
     r.add_argument("--models", nargs="*", default=None,
                    help=f"subset of {available_models()}")
+    r.add_argument("--permutations", type=int, default=None,
+                   help="subject-level permutation null, N permutations (slow)")
 
     a = sub.add_parser("audit", help="cohort design audit only")
     a.add_argument("--manifest", required=True)
@@ -95,11 +98,19 @@ def main(argv=None) -> int:
         print(f"feature matrix {X.shape} -> {out / 'features.csv'}")
         return 0
 
-    art = run_analysis(args.manifest, _load_cfg(args.config), args.out,
+    cfg = _load_cfg(args.config)
+    if args.permutations is not None:
+        cfg.validation.permutation_tests = args.permutations
+        cfg.validation.validate()
+    art = run_analysis(args.manifest, cfg, args.out,
                        models=args.models, data_root=args.data_root)
     print(f"\nreport: {art.report_path}")
     for name, res in sorted(art.results.items(), key=lambda kv: -kv[1].mean("roc_auc")):
         print("  " + res.report_line())
+    if art.permutation and art.permutation.get("n_permutations"):
+        n = art.permutation
+        print(f"  permutation null ({n['model']}): observed {n['observed']:.3f}, "
+              f"null mean {n['null_mean']:.3f}, p = {n['p_value']:.3f}")
     return 0
 
 

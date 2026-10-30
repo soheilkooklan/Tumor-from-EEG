@@ -100,7 +100,8 @@ validation:
   calibration: sigmoid
   aggregation: trimmed_mean
   bootstrap_iterations: 2000
-  permutation_tests: 200
+  permutation_tests: 0
+  permutation_model: ElasticNetLogistic
   alpha: 0.05
 task_name: abnormality-screening
 positive_class_label: positive

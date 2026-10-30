@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ValidationResult", "nested_cross_validate", "compute_metrics",
     "bootstrap_ci", "delong_test", "mcnemar_test", "permutation_test",
-    "sensitivity_at_specificity",
+    "sensitivity_at_specificity", "split_groups", "permutation_null",
 ]
 
 
@@ -126,6 +126,29 @@ def compute_metrics(y_true, y_score, threshold: float = 0.5) -> Dict[str, float]
 # Uncertainty and comparison
 # ---------------------------------------------------------------------------
 
+def _auc(y_true, y_score) -> float:
+    """Mann-Whitney ROC-AUC with average ranks for ties (same as roc_auc_score)."""
+    from scipy.stats import rankdata
+    pos = y_true == 1
+    n1 = int(pos.sum())
+    n0 = y_true.size - n1
+    ranks = rankdata(y_score)
+    return float((ranks[pos].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
+
+
+def _balanced_accuracy(y_true, y_score, threshold: float = 0.5) -> float:
+    pred = y_score >= threshold
+    pos = y_true == 1
+    return float(0.5 * (pred[pos].mean() + (~pred[~pos]).mean()))
+
+
+_FAST_METRICS = {
+    "roc_auc": _auc,
+    "pr_auc": lambda y, s: float(average_precision_score(y, s)),
+    "balanced_accuracy": _balanced_accuracy,
+}
+
+
 def bootstrap_ci(y_true, y_score, metric: str = "roc_auc",
                  n_iterations: int = 2000, alpha: float = 0.05,
                  random_state: int = 42,
@@ -134,12 +157,18 @@ def bootstrap_ci(y_true, y_score, metric: str = "roc_auc",
 
     When `groups` is given the resampling is done over groups (subjects), which
     is the correct unit: bootstrapping rows from correlated recordings produces
-    intervals that are far too narrow.
+    intervals that are far too narrow. Only the requested metric is computed
+    per resample.
     """
     rng = np.random.default_rng(random_state)
     y_true = np.asarray(y_true, dtype=int)
     y_score = np.asarray(y_score, dtype=float)
-    point = compute_metrics(y_true, y_score).get(metric, float("nan"))
+    if len(np.unique(y_true)) < 2:
+        return float("nan"), float("nan"), float("nan")
+    fn = _FAST_METRICS.get(metric)
+    if fn is None:
+        fn = lambda y, s: compute_metrics(y, s)[metric]
+    point = fn(y_true, y_score)
 
     stats: List[float] = []
     if groups is None:
@@ -148,16 +177,17 @@ def bootstrap_ci(y_true, y_score, metric: str = "roc_auc",
             idx = rng.integers(0, n, n)
             if len(np.unique(y_true[idx])) < 2:
                 continue
-            stats.append(compute_metrics(y_true[idx], y_score[idx])[metric])
+            stats.append(fn(y_true[idx], y_score[idx]))
     else:
         groups = np.asarray(groups)
-        unique = np.unique(groups)
+        unique, inverse = np.unique(groups, return_inverse=True)
+        members = [np.flatnonzero(inverse == k) for k in range(unique.size)]
         for _ in range(n_iterations):
-            drawn = rng.choice(unique, len(unique), replace=True)
-            idx = np.concatenate([np.where(groups == g)[0] for g in drawn])
+            drawn = rng.integers(0, unique.size, unique.size)
+            idx = np.concatenate([members[k] for k in drawn])
             if len(np.unique(y_true[idx])) < 2:
                 continue
-            stats.append(compute_metrics(y_true[idx], y_score[idx])[metric])
+            stats.append(fn(y_true[idx], y_score[idx]))
 
     if len(stats) < 50:
         return point, float("nan"), float("nan")
@@ -269,12 +299,39 @@ def permutation_test(fit_predict_fn, y_true, groups, n_permutations: int = 200,
     p = (np.sum(null >= observed) + 1) / (null.size + 1)
     return {"observed": float(observed), "null_mean": float(np.mean(null)),
             "null_std": float(np.std(null)), "p_value": float(p),
-            "n_permutations": int(null.size)}
+            "n_permutations": int(null.size),
+            "null": [round(float(v), 6) for v in null]}
 
 
 # ---------------------------------------------------------------------------
 # Nested cross-validation
 # ---------------------------------------------------------------------------
+
+def split_groups(index: Sequence[dict], grouping: str = "subject") -> np.ndarray:
+    """Group vector used for every split.
+
+    "recording" is accepted only when no subject has more than one recording,
+    in which case it is the same partition as "subject". With repeated
+    recordings it would put one person on both sides of a fold, so it is
+    refused rather than quietly honoured.
+    """
+    subjects = np.array([r["subject_id"] for r in index])
+    if grouping == "subject":
+        return subjects
+    if grouping == "recording":
+        recordings = np.array([r["recording_id"] for r in index])
+        per_subject = {}
+        for s_, r_ in zip(subjects, recordings):
+            per_subject.setdefault(s_, set()).add(r_)
+        repeated = [s_ for s_, recs in per_subject.items() if len(recs) > 1]
+        if repeated:
+            raise ValueError(
+                f"grouping='recording' with {len(repeated)} subject(s) holding more "
+                f"than one recording (e.g. {repeated[0]}); this would split a "
+                f"subject across folds. Use grouping='subject'.")
+        return recordings
+    raise ValueError(f"unknown grouping '{grouping}'")
+
 
 @dataclass
 class ValidationResult:
@@ -331,27 +388,28 @@ def _tune(model_name: str, cfg: AnalysisConfig, X, y, groups,
             scores.append(roc_auc_score(y[va], p))
         return float(np.mean(scores)) if scores else 0.0
 
-    if cfg.validation.optimisation == "optuna":
-        try:
-            import optuna
-            optuna.logging.set_verbosity(optuna.logging.WARNING)
-        except ImportError:                                    # pragma: no cover
-            logger.warning("optuna not installed; falling back to default params")
-            return {}
-        study = optuna.create_study(
-            direction="maximize",
-            sampler=optuna.samplers.TPESampler(seed=seed))
-        study.optimize(lambda t: score_params(spec.search_space(t)),
-                       n_trials=cfg.validation.n_trials, show_progress_bar=False)
-        return study.best_params
-    return {}
+    try:
+        import optuna
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+    except ImportError:                                        # pragma: no cover
+        logger.warning("optuna not installed; falling back to default params")
+        return {}
+    if cfg.validation.optimisation == "random":
+        sampler = optuna.samplers.RandomSampler(seed=seed)
+    else:
+        sampler = optuna.samplers.TPESampler(seed=seed)
+    study = optuna.create_study(direction="maximize", sampler=sampler)
+    study.optimize(lambda t: score_params(spec.search_space(t)),
+                   n_trials=cfg.validation.n_trials, show_progress_bar=False)
+    return study.best_params
 
 
 def nested_cross_validate(X: np.ndarray, index: Sequence[dict],
                           cfg: AnalysisConfig,
                           feature_names: Sequence[str],
                           model_names: Optional[Sequence[str]] = None,
-                          progress=None) -> Dict[str, ValidationResult]:
+                          progress=None,
+                          intervals: bool = True) -> Dict[str, ValidationResult]:
     """Repeated, subject-disjoint, nested cross-validation.
 
     Parameters
@@ -366,7 +424,7 @@ def nested_cross_validate(X: np.ndarray, index: Sequence[dict],
     """
     X = np.asarray(X, dtype=np.float64)
     y_row = np.array([int(r["label"]) for r in index])
-    groups_row = np.array([r["subject_id"] for r in index])
+    groups_row = split_groups(index, cfg.validation.grouping)
     model_names = list(model_names or MODEL_SPECS.keys())
 
     n_subjects = len(np.unique(groups_row))
@@ -401,9 +459,11 @@ def nested_cross_validate(X: np.ndarray, index: Sequence[dict],
                              f"{model_name}  repeat {repeat + 1}/{cfg.validation.n_repeats}"
                              f"  fold {fold + 1}/{outer_folds}")
 
-                # Sanity: the split must be subject-disjoint.
+                # The split must be subject-disjoint. Not an assert: python -O
+                # would strip it.
                 overlap = set(groups_row[tr]) & set(groups_row[te])
-                assert not overlap, f"subject leakage in fold: {overlap}"
+                if overlap:
+                    raise RuntimeError(f"subject leakage in fold: {sorted(overlap)[:5]}")
 
                 if len(np.unique(y_row[tr])) < 2 or len(np.unique(y_row[te])) < 2:
                     continue
@@ -417,7 +477,9 @@ def nested_cross_validate(X: np.ndarray, index: Sequence[dict],
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     model = calibrate(pipe, X[tr], y_row[tr],
-                                      cfg.validation.calibration)
+                                      cfg.validation.calibration,
+                                      groups=groups_row[tr],
+                                      random_state=seed + fold)
                     row_scores = model.predict_proba(X[te])[:, 1]
 
                 agg = aggregate_scores(row_scores, [index[i] for i in te],
@@ -441,7 +503,7 @@ def nested_cross_validate(X: np.ndarray, index: Sequence[dict],
         pooled = compute_metrics(pooled_labels, pooled_scores)
 
         cis = {}
-        for metric in ("roc_auc", "pr_auc", "balanced_accuracy"):
+        for metric in (("roc_auc", "pr_auc", "balanced_accuracy") if intervals else ()):
             cis[metric] = bootstrap_ci(
                 pooled_labels, pooled_scores, metric,
                 cfg.validation.bootstrap_iterations, cfg.validation.alpha,
@@ -461,3 +523,41 @@ def nested_cross_validate(X: np.ndarray, index: Sequence[dict],
         logger.info(results[model_name].report_line())
 
     return results
+
+
+def permutation_null(X: np.ndarray, index: Sequence[dict], cfg: AnalysisConfig,
+                     feature_names: Sequence[str], model_name: str,
+                     n_permutations: int = 200,
+                     random_state: int = 42) -> Dict[str, float]:
+    """Subject-level permutation null for one model family, end to end.
+
+    Each permutation reruns the outer subject-disjoint cross-validation with
+    selection and calibration inside it. Hyper-parameter search is switched off
+    and one repeat is used, for the observed score as well as the permuted
+    ones, so both sides of the comparison come from the same procedure. The
+    observed value here is therefore not the headline score of the full run.
+    """
+    import copy
+    if model_name not in MODEL_SPECS:
+        raise ValueError(f"unknown model '{model_name}'")
+    fast = copy.deepcopy(cfg)
+    fast.validation.optimisation = "none"
+    fast.validation.n_repeats = 1
+    groups = split_groups(index, cfg.validation.grouping)
+    y = np.array([int(r["label"]) for r in index])
+
+    def score(y_new) -> float:
+        relabelled = [dict(r, label=int(v)) for r, v in zip(index, y_new)]
+        res = nested_cross_validate(X, relabelled, fast, feature_names, [model_name],
+                                    intervals=False)
+        return res[model_name].mean("roc_auc") if model_name in res else float("nan")
+
+    level = logger.level
+    logger.setLevel(logging.WARNING)       # one INFO line per permutation is noise
+    try:
+        out = permutation_test(score, y, groups, n_permutations, random_state)
+    finally:
+        logger.setLevel(level)
+    out["model"] = model_name
+    return out
+

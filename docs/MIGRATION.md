@@ -112,7 +112,7 @@ curl -o LICENSE https://raw.githubusercontent.com/polyformproject/polyform-licen
 
 # 4. verify before committing anything
 pip install -r requirements.txt
-pytest -q                                    # expect 32 passed
+pytest -q                                    # expect 40 passed (2.1.0)
 
 python examples/make_demo_cohort.py --out /tmp/null --effect 0.0 --subjects 20
 python -m eegtumor.cli run --manifest /tmp/null/cohort.csv --out /tmp/null_run

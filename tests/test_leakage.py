@@ -27,8 +27,9 @@ from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold, cross
 from sklearn.pipeline import Pipeline
 
 from eegtumor.config import AnalysisConfig, ConfigError, SelectionConfig, ValidationConfig
-from eegtumor.modeling import build_pipeline
+from eegtumor.modeling import build_pipeline, calibrate, calibration_splits
 from eegtumor.selection import FeatureFunnel, selection_stability
+from eegtumor.validation import permutation_null, split_groups
 
 N_SUBJECTS = 30
 ROWS_PER_SUBJECT = 12
@@ -82,8 +83,8 @@ def test_grouped_split_returns_chance_on_pure_noise():
     cv = StratifiedGroupKFold(5, shuffle=True, random_state=0)
     auc = cross_val_score(clf, X, y, cv=cv, groups=groups, scoring="roc_auc").mean()
     assert 0.30 < auc < 0.70, (
-        f"subject-disjoint CV returned AUC {auc:.3f} on label-free data; "
-        f"grouping leakage has been reintroduced")
+        f"subject-disjoint CV returned AUC {auc:.3f} on label-free "
+        f"data; grouping leakage has been reintroduced")
 
 
 def test_full_pipeline_returns_chance_on_pure_noise():
@@ -192,3 +193,82 @@ def test_stability_resamples_over_subjects():
 def test_grouping_cannot_be_disabled(bad):
     with pytest.raises(ConfigError):
         AnalysisConfig(validation=ValidationConfig(grouping=bad))
+
+
+# ---------------------------------------------------------------------------
+# Calibration, grouping setting and permutation null (v2.1)
+# ---------------------------------------------------------------------------
+
+def _null_index(y, groups):
+    return [{"subject_id": f"S{g}", "recording_id": f"S{g}_r0", "epoch": i,
+             "channel": 0, "label": int(v)}
+            for i, (v, g) in enumerate(zip(y, groups))]
+
+
+def test_calibration_folds_are_subject_disjoint():
+    """CalibratedClassifierCV inside a training fold must not split a subject.
+    Version 2.0 used row-level folds here."""
+    X, y, groups = make_null_cohort(seed=2)
+    splits = calibration_splits(y, groups, n_folds=3, random_state=0)
+    assert splits is not None and len(splits) >= 2
+    for tr, te in splits:
+        assert not set(groups[tr]) & set(groups[te])
+
+    pipe = build_pipeline("ElasticNetLogistic", AnalysisConfig(),
+                          feature_names=[f"f{i}" for i in range(N_FEATURES)])
+    model = calibrate(pipe, X, y, "sigmoid", groups=groups)
+    for tr, te in model.cv:
+        assert not set(groups[tr]) & set(groups[te])
+
+
+def test_recording_grouping_is_refused_with_repeated_recordings():
+    index = [{"subject_id": "P1", "recording_id": "P1_a", "label": 0},
+             {"subject_id": "P1", "recording_id": "P1_b", "label": 0},
+             {"subject_id": "P2", "recording_id": "P2_a", "label": 1}]
+    with pytest.raises(ValueError):
+        split_groups(index, "recording")
+    assert list(split_groups(index, "subject")) == ["P1", "P1", "P2"]
+
+
+def test_recording_grouping_equals_subject_with_one_recording_each():
+    X, y, groups = make_null_cohort(seed=4)
+    index = _null_index(y, groups)
+    by_rec = split_groups(index, "recording")
+    by_subj = split_groups(index, "subject")
+    assert len(np.unique(by_rec)) == len(np.unique(by_subj))
+
+
+@pytest.mark.parametrize("bad", ["grid", "", "Optuna"])
+def test_unknown_optimisation_is_rejected(bad):
+    with pytest.raises(ConfigError):
+        AnalysisConfig(validation=ValidationConfig(optimisation=bad))
+
+
+def _fast_cfg():
+    cfg = AnalysisConfig(selection=SelectionConfig(max_features=10))
+    cfg.validation.outer_folds = 4
+    cfg.validation.calibration = None
+    cfg.validation.optimisation = "none"
+    cfg.validation.n_repeats = 1
+    return cfg
+
+
+def test_permutation_null_is_not_significant_on_null_data():
+    X, y, groups = make_null_cohort(seed=6)
+    index = _null_index(y, groups)
+    names = [f"f{i}" for i in range(N_FEATURES)]
+    out = permutation_null(X, index, _fast_cfg(), names, "ElasticNetLogistic",
+                           n_permutations=19, random_state=0)
+    assert out["n_permutations"] >= 15
+    assert out["p_value"] > 0.05, f"null data came out significant: {out}"
+    assert 0.3 < out["null_mean"] < 0.7
+
+
+def test_permutation_null_detects_a_real_effect():
+    X, y, groups = make_null_cohort(seed=11)
+    X[:, 0] += 8.0 * y
+    index = _null_index(y, groups)
+    names = [f"f{i}" for i in range(N_FEATURES)]
+    out = permutation_null(X, index, _fast_cfg(), names, "ElasticNetLogistic",
+                           n_permutations=19, random_state=0)
+    assert out["p_value"] <= 0.10, f"strong effect not detected: {out}"

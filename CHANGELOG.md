@@ -1,5 +1,66 @@
 # Changelog
 
+## [2.1.0] - 2026-10
+
+A correctness and honesty release. No change to the feature set.
+
+### Fixed
+
+- Calibration folds were row-level. `CalibratedClassifierCV` inside each
+  training fold split rows at random, so the sigmoid was fitted on held-out
+  scores from subjects the model had partly seen. Calibration folds are now
+  subject-disjoint (`modeling.calibration_splits`), in cross-validation, in the
+  final explained model and in the GUI screening tab. Test fold separation was
+  never affected, so ROC-AUC was not inflated by this; probabilities were.
+- `ValidationConfig.grouping = "recording"` was accepted but ignored, and the
+  HTML report then claimed recording-level splitting while the code split on
+  subject. The setting is now honoured, and refused with a clear error when any
+  subject has more than one recording.
+- `optimisation = "random"` was documented but fell through to no tuning. It
+  now runs Optuna's random sampler. Unknown values raise `ConfigError`.
+- The bootstrap recomputed all thirteen metrics on every resample. It now
+  computes only the requested one, which makes a cross-validation run about
+  15 times faster on the test cohort with identical values.
+- `calibrate()` forced at least two folds even when a class had one member,
+  then could not reach its own fallback.
+- The per-fold subject-overlap check was an `assert`, which `python -O`
+  removes. It now raises `RuntimeError`.
+- The demo cohort generator redrew each subject's alpha peak, amplitude, noise
+  floor, 1/f slope and lesion channels for every session, although its
+  docstring said they were shared. Two recordings of one person were therefore
+  no more alike than two people, and the demo could not show leakage across
+  recordings. The profile is now drawn once per subject, with small session
+  jitter. Demo numbers change accordingly.
+
+### Changed
+
+- The subject-level permutation null was implemented but never called. It is
+  now wired into a run as an option: `eegtumor run --permutations N` or
+  `validation.permutation_tests` in the config (default 0, since each
+  permutation is a full cross-validation). Results, including every null
+  score, go to `permutation_null.json` and the HTML report.
+- Figure titles gave the pooled row count (for example "n = 124 recordings"
+  for 62 recordings scored in two repeats). They now say "62 recordings x 2
+  repeats, pooled".
+- The permutation null no longer prints one log line per permutation.
+- `metrics.csv` now carries the bootstrap interval bounds
+  (`roc_auc_ci_low`, `roc_auc_ci_high` and the same for PR-AUC and balanced
+  accuracy); before, they appeared only in the HTML report.
+- The HTML report now states that the family shown in the confusion matrix and
+  SHAP figures was chosen by outer-fold ROC-AUC, so its score includes that
+  choice.
+- Documentation corrected where it claimed more than the code did: the
+  recording-level score is not re-calibrated; confidence intervals resample
+  subjects, not recordings; Kapoor and Narayanan (2023) list subject-wise
+  leakage among the types they found, rather than ranking it first; the
+  TUAB accuracy range is widened to what published results actually show.
+
+### Added
+
+- Eight regression tests: subject-disjoint calibration folds, the grouping
+  guard, optimisation validation, and the permutation null on a null cohort
+  and on a cohort with a real effect.
+
 ## [2.0.0] — 2026
 
 Complete rewrite. Version 2 is not backward compatible with version 1; the

@@ -282,7 +282,8 @@ class ValidationConfig:
     aggregation: str = "trimmed_mean"        # mean | median | trimmed_mean | max
 
     bootstrap_iterations: int = 2000
-    permutation_tests: int = 200             # label-permutation null
+    permutation_tests: int = 0               # subject-level label-permutation null; 0 = off
+    permutation_model: str = "ElasticNetLogistic"
     alpha: float = 0.05
 
     def validate(self) -> None:
@@ -296,6 +297,10 @@ class ValidationConfig:
             raise ConfigError("outer_folds and inner_folds must be >= 2")
         if self.calibration not in {None, "sigmoid", "isotonic"}:
             raise ConfigError("calibration must be sigmoid|isotonic|None")
+        if self.optimisation not in {"optuna", "random", "none"}:
+            raise ConfigError("optimisation must be optuna|random|none")
+        if self.permutation_tests < 0:
+            raise ConfigError("permutation_tests must be >= 0")
 
 
 # ---------------------------------------------------------------------------

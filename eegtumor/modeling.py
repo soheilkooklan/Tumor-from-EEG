@@ -25,7 +25,10 @@ uncalibrated probability presented to a user as a percentage is misleading.
 Platt scaling (`sigmoid`) is the default rather than isotonic regression:
 isotonic is non-parametric and needs on the order of a thousand samples before
 it stops over-fitting the calibration set, which is more than this setting
-usually has (Niculescu-Mizil & Caruana, 2005).
+usually has (Niculescu-Mizil & Caruana, 2005). The calibration folds are
+subject-disjoint too. Rows from one subject on both sides of a calibration
+split give over-confident held-out scores, and the fitted sigmoid copies that
+over-confidence into every probability the model reports.
 
 *Aggregation.* The model sees one (epoch, channel) at a time, but the question
 is about a recording. Averaging probabilities is the obvious choice and the
@@ -33,8 +36,9 @@ wrong one when a lesion is focal: a real abnormality confined to two of
 nineteen channels is diluted by the seventeen normal ones. Several aggregation
 rules are therefore provided and the choice is an explicit, reported analysis
 decision. Note that aggregating calibrated epoch probabilities does not yield a
-calibrated recording probability - the recording-level score is re-calibrated
-separately.
+calibrated recording probability. The recording-level score is not
+re-calibrated here, so read the recording-level calibration curve before
+quoting any probability.
 
 Inputs   : feature matrix, labels, group vector
 Outputs  : fitted pipelines, recording-level scores
@@ -76,6 +80,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "MODEL_SPECS", "available_models", "build_pipeline", "calibrate",
+    "calibration_splits",
     "aggregate_scores", "AggregationResult",
 ]
 
@@ -271,19 +276,52 @@ def build_pipeline(model_name: str, cfg: AnalysisConfig,
     return Pipeline(steps)
 
 
-def calibrate(pipeline: Pipeline, X, y, method: Optional[str] = "sigmoid",
-              cv: int = 3) -> object:
-    """Wrap a fitted-or-unfitted pipeline in probability calibration.
+def calibration_splits(y, groups, n_folds: int = 3,
+                       random_state: int = 0) -> Optional[list]:
+    """Subject-disjoint folds for CalibratedClassifierCV.
 
-    Returns the pipeline unchanged when `method` is None. `cv` folds are used
-    internally by `CalibratedClassifierCV`; with very small classes it is
-    reduced automatically rather than raising.
+    Returns None when there are too few subjects per class for two folds.
+    """
+    y = np.asarray(y, dtype=int)
+    groups = np.asarray(groups)
+    subj = {g: y[groups == g][0] for g in np.unique(groups)}
+    counts = np.bincount(list(subj.values()), minlength=2)
+    folds = int(min(n_folds, counts.min()))
+    if folds < 2:
+        return None
+    from sklearn.model_selection import StratifiedGroupKFold
+    cv = StratifiedGroupKFold(n_splits=folds, shuffle=True, random_state=random_state)
+    splits = [(tr, te) for tr, te in cv.split(np.zeros(len(y)), y, groups)
+              if len(np.unique(y[tr])) == 2 and len(np.unique(y[te])) == 2]
+    return splits if len(splits) >= 2 else None
+
+
+def calibrate(pipeline: Pipeline, X, y, method: Optional[str] = "sigmoid",
+              cv: int = 3, groups=None, random_state: int = 0) -> object:
+    """Fit a pipeline and wrap it in probability calibration.
+
+    Returns the fitted pipeline unchanged when `method` is None. With `groups`
+    the calibration folds are subject-disjoint, which is what the rest of the
+    protocol requires. Without `groups` the folds are row-level and a warning
+    is logged; that path is kept only for callers with one row per subject.
     """
     if method is None:
         pipeline.fit(X, y)
         return pipeline
+
+    if groups is not None:
+        splits = calibration_splits(y, groups, cv, random_state)
+        if splits is None:
+            logger.warning("too few subjects per class to calibrate; returning raw model")
+            pipeline.fit(X, y)
+            return pipeline
+        cal = CalibratedClassifierCV(pipeline, method=method, cv=splits)
+        cal.fit(X, y)
+        return cal
+
+    logger.warning("calibrate() called without groups; calibration folds are row-level")
     counts = np.bincount(np.asarray(y, dtype=int))
-    folds = int(max(2, min(cv, counts[counts > 0].min())))
+    folds = int(min(cv, counts[counts > 0].min()))
     if folds < 2:
         logger.warning("too few samples per class to calibrate; returning raw model")
         pipeline.fit(X, y)

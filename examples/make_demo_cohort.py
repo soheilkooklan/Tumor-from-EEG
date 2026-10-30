@@ -12,9 +12,13 @@ all.
 The simulated positive class has mild focal slowing: elevated delta and theta
 power confined to two of eight channels, which is the pattern a structural
 lesion produces on scalp EEG. Each simulated subject also gets an idiosyncratic
-alpha peak, amplitude and noise floor shared across all of that subject's
-channels, reproducing the between-subject variability that makes ungrouped
-cross-validation dishonest.
+alpha peak, amplitude, noise floor and 1/f slope, shared by every channel and
+every session of that subject with a small session-to-session jitter. A
+positive subject keeps the same two lesion channels in every session. This is
+the between-subject structure that makes ungrouped cross-validation dishonest,
+both across channels of one recording and across recordings of one person.
+(Before 2.1 the profile was redrawn for each session, so two recordings of one
+subject were no more alike than two different subjects.)
 
     python examples/make_demo_cohort.py --out demo_data --effect 0.6
     python examples/make_demo_cohort.py --out demo_null --effect 0.0
@@ -35,23 +39,34 @@ from pathlib import Path
 import numpy as np
 
 
-def synth_recording(rng, fs=250.0, seconds=60.0, n_channels=8,
+def subject_profile(rng, n_channels=8, positive=False):
+    """Person-level parameters, drawn once per subject."""
+    return {
+        "alpha_peak": rng.uniform(8.5, 11.5),
+        "amp": rng.uniform(12.0, 28.0),
+        "noise": rng.uniform(4.0, 10.0),
+        "aperiodic": rng.uniform(0.9, 1.6),
+        "focal": rng.choice(n_channels, size=2, replace=False) if positive else [],
+    }
+
+
+def synth_recording(rng, profile, fs=250.0, seconds=60.0, n_channels=8,
                     effect=0.6, positive=False):
     n = int(fs * seconds)
     t = np.arange(n) / fs
 
-    # Subject-level idiosyncrasy, shared by every channel of this subject
-    alpha_peak = rng.uniform(8.5, 11.5)
-    amp = rng.uniform(12.0, 28.0)
-    noise = rng.uniform(4.0, 10.0)
-    aperiodic = rng.uniform(0.9, 1.6)
+    # session jitter around the subject's own profile
+    alpha_peak = profile["alpha_peak"] + rng.normal(0.0, 0.2)
+    amp = profile["amp"] * rng.uniform(0.9, 1.1)
+    noise = profile["noise"] * rng.uniform(0.9, 1.1)
+    aperiodic = profile["aperiodic"] + rng.normal(0.0, 0.05)
 
     # 1/f background via filtered white noise
     freqs = np.fft.rfftfreq(n, 1 / fs)
     shape = np.zeros_like(freqs)
     shape[1:] = freqs[1:] ** (-aperiodic / 2)
 
-    focal = rng.choice(n_channels, size=2, replace=False) if positive else []
+    focal = profile["focal"]
 
     channels = []
     for c in range(n_channels):
@@ -95,9 +110,10 @@ def main():
     lines = ["path,subject_id,label,recording_id,sampling_rate"]
     for s in range(args.subjects):
         label = int(s % 2 == 0)
+        profile = subject_profile(rng, args.channels, positive=bool(label))
         for sess in range(rng.integers(1, 3)):        # 1-2 sessions per subject
-            data = synth_recording(rng, args.fs, args.seconds, args.channels,
-                                   args.effect, positive=bool(label))
+            data = synth_recording(rng, profile, args.fs, args.seconds,
+                                   args.channels, args.effect, positive=bool(label))
             rid = f"S{s:03d}_r{sess}"
             np.save(out / "recordings" / f"{rid}.npy", data.astype(np.float32))
             lines.append(f"recordings/{rid}.npy,S{s:03d},{label},{rid},{args.fs:g}")
