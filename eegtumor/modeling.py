@@ -134,7 +134,10 @@ def _lr(rs: int):
 
 def _lr_space(trial):
     return {
-        "C": trial.suggest_float("C", 1e-3, 1e2, log=True),
+        # Lower bound 1e-5: with tens of thousands of correlated epoch rows the
+        # best penalty is strong, and a 1e-3 floor left the tuner pinned at the
+        # boundary in most folds on real data.
+        "C": trial.suggest_float("C", 1e-5, 1e2, log=True),
         "l1_ratio": trial.suggest_float("l1_ratio", 0.0, 1.0),
     }
 
@@ -246,13 +249,19 @@ def available_models() -> List[str]:
 def build_pipeline(model_name: str, cfg: AnalysisConfig,
                    feature_names: Optional[Sequence[str]] = None,
                    params: Optional[dict] = None,
-                   random_state: Optional[int] = None) -> Pipeline:
+                   random_state: Optional[int] = None,
+                   memory=None) -> Pipeline:
     """Assemble imputation -> scaling -> selection -> classifier.
 
     Every data-dependent step is inside the pipeline, so when the pipeline is
     handed to a cross-validator each step is fitted on the training fold alone.
     This is the structural fix for the leakage described in docs/METHODS.md;
     scaling or selecting outside this object re-introduces it.
+
+    `memory` (a joblib.Memory or path) caches the fitted imputer, scaler and
+    selection funnel. Hyper-parameter trials on the same training rows then
+    reuse one selection fit instead of repeating it; the cache key includes the
+    data, so a different fold never reuses another fold's selection.
     """
     if model_name not in MODEL_SPECS:
         raise KeyError(f"unknown model '{model_name}'; available: {available_models()}")
@@ -273,7 +282,7 @@ def build_pipeline(model_name: str, cfg: AnalysisConfig,
     if params:
         clf.set_params(**params)
     steps.append(("clf", clf))
-    return Pipeline(steps)
+    return Pipeline(steps, memory=memory)
 
 
 def calibration_splits(y, groups, n_folds: int = 3,

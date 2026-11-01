@@ -11,7 +11,7 @@ recommendation, or a basis for any decision about a person's care. Do not use
 it to inform clinical management, to decide whether someone needs imaging, to
 reassure anyone, or to alarm anyone.
 
-Brain tumours are diagnosed with structural imaging — MRI or CT — interpreted
+Brain tumours are diagnosed with structural imaging (MRI or CT) interpreted
 by a qualified clinician, together with the clinical history and examination.
 An EEG cannot confirm a tumour and cannot exclude one. A normal EEG in a person
 with a brain tumour is common; an abnormal EEG has many causes that have
@@ -23,7 +23,7 @@ through this software instead.
 ## Regulatory note
 
 Software intended to diagnose, prevent, monitor, predict, or treat disease may
-be regulated as a medical device — as Software as a Medical Device under
+be regulated as a medical device, as Software as a Medical Device under
 US FDA rules, or under Regulation (EU) 2017/745 in Europe, and equivalently in
 other jurisdictions. This project makes no such claim and is not intended for
 that purpose.
@@ -44,7 +44,7 @@ separable *your particular dataset* is. It does not tell you whether the
 separation reflects the pathology rather than the scanner, the ward, the
 recording technician, the medication, the age difference between your groups,
 or the time of day the recordings were made. Establishing that is the
-scientific work, and this software cannot do it for you — it can only stop you
+scientific work, and this software cannot do it for you. It can only stop you
 from fooling yourself in a few of the most common ways.
 
 ## Known limitation of the central premise

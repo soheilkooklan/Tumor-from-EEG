@@ -22,6 +22,7 @@ preprocessing:
   reject_muscle_ratio: 0.6
   min_good_epochs: 3
   reference: average
+  channels: scalp
 bands:
   bands:
     delta:
@@ -104,6 +105,7 @@ validation:
   bootstrap_iterations: 2000
   permutation_tests: 0
   permutation_model: ElasticNetLogistic
+  baseline_feature: sp_ratio_theta_alpha
   alpha: 0.05
 task_name: abnormality-screening
 positive_class_label: positive

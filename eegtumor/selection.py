@@ -103,6 +103,7 @@ class FeatureFunnel(BaseEstimator, TransformerMixin):
         max_features: Optional[int] = 30,
         random_state: int = 42,
         feature_names: Optional[Sequence[str]] = None,
+        ranking_max_rows: Optional[int] = 20000,
     ):
         self.drop_zero_variance = drop_zero_variance
         self.variance_threshold = variance_threshold
@@ -112,6 +113,7 @@ class FeatureFunnel(BaseEstimator, TransformerMixin):
         self.max_features = max_features
         self.random_state = random_state
         self.feature_names = feature_names
+        self.ranking_max_rows = ranking_max_rows
 
     # -- sklearn plumbing ---------------------------------------------------
     @classmethod
@@ -126,6 +128,7 @@ class FeatureFunnel(BaseEstimator, TransformerMixin):
             max_features=cfg.max_features,
             random_state=random_state,
             feature_names=feature_names,
+            ranking_max_rows=getattr(cfg, "ranking_max_rows", 20000),
         )
 
     def fit(self, X, y=None):
@@ -243,10 +246,35 @@ class FeatureFunnel(BaseEstimator, TransformerMixin):
         out[idx[survivors]] = True
         return out
 
+    def _ranking_rows(self, y) -> np.ndarray:
+        """Stratified row sample for the model-based ranking stages."""
+        n = len(y)
+        cap = self.ranking_max_rows
+        if cap is None or n <= cap:
+            return np.arange(n)
+        rng = np.random.default_rng(self.random_state)
+        y = np.asarray(y)
+        out = []
+        for c in np.unique(y):
+            members = np.flatnonzero(y == c)
+            k = max(1, int(round(cap * members.size / n)))
+            out.append(rng.choice(members, size=min(k, members.size), replace=False))
+        return np.sort(np.concatenate(out))
+
     def _embedded(self, X, y, keep):
         idx = np.where(keep)[0]
-        Xc = self._clean(X[:, idx])
+        rows = self._ranking_rows(y)
+        Xc = self._clean(X[rows][:, idx])
+        y = np.asarray(y)[rows]
         if self.embedded_method == "elasticnet":
+            # Standardise here: an L1 penalty depends on feature scale, and
+            # without this the result depended on whether the input had been
+            # scaled beforehand (it had in the pipeline, not in the stability
+            # analysis). Standardising makes it invariant to any per-feature
+            # affine rescaling of the input.
+            sd = Xc.std(axis=0)
+            sd[sd == 0] = 1.0
+            Xc = (Xc - Xc.mean(axis=0)) / sd
             model = _elasticnet_logistic(C=0.1, random_state=self.random_state)
             model.fit(Xc, y)
             imp = np.abs(model.coef_).ravel()
@@ -267,9 +295,10 @@ class FeatureFunnel(BaseEstimator, TransformerMixin):
         return out
 
     def _importance(self, X, y):
+        rows = self._ranking_rows(y)
         model = RandomForestClassifier(n_estimators=200,
                                        random_state=self.random_state, n_jobs=-1)
-        model.fit(self._clean(X), y)
+        model.fit(self._clean(X[rows]), np.asarray(y)[rows])
         return model.feature_importances_
 
 

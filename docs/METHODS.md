@@ -51,7 +51,7 @@ make a result uninterpretable regardless of how the model is validated:
 
 - fewer than 20 subjects, or fewer than 5 in the smaller class;
 - subjects appearing in both classes;
-- **sampling rates that differ systematically between classes** — if the two
+- **sampling rates that differ systematically between classes**: if the two
   groups were recorded on different equipment, any classifier can separate them
   by acquisition system alone;
 - recording durations differing by more than 3× between classes;
@@ -70,7 +70,7 @@ Order of operations, with the reason for each:
    Entropy, fractal and spectral features are all functions of the sampling
    grid; mixing rates makes values incomparable.
 2. **DC removal**, so the high-pass does not ring on a large offset.
-3. **Mains notch**, at 50 or 60 Hz and in-band harmonics — applied *before* the
+3. **Mains notch**, at 50 or 60 Hz and in-band harmonics, applied *before* the
    low-pass. A 50 Hz notch after a 30 Hz low-pass removes nothing.
 4. **Band-pass**, default 0.5–45 Hz, zero-phase, in second-order-section form
    (`sosfiltfilt`). SOS rather than transfer-function coefficients because
@@ -106,7 +106,7 @@ defect in version 1.
 An epoch–channel is rejected if it is flat (>30 % zero-slope samples), clipped
 (>2 % of samples at the rail), exceeds a peak-to-peak amplitude threshold
 (default 500 µV), has zero variance, or carries more than 60 % of its power
-above 30 Hz — a simple EMG index following the logic of Nolan et al. (2010).
+above 30 Hz, a simple EMG index following the logic of Nolan et al. (2010).
 Every rejection is recorded with its reason and the acceptance rate is reported.
 
 No automatic ICA component rejection is performed. Deciding which independent
@@ -132,7 +132,7 @@ results.
 | Complexity | 6 | Higuchi, Katz, Petrosian FD; DFA α; Hurst R/S; Lempel-Ziv |
 
 **The features are not equally defensible, and the documentation says so.**
-The classical scalp correlate of a structural lesion is focal slowing —
+The classical scalp correlate of a structural lesion is focal slowing:
 increased delta and theta, reduced alpha, frequently lateralised. The band
 ratios, in particular `sp_ratio_slowing_index` (δ+θ)/(α+β), quantify exactly
 that and have a substantial clinical literature. The entropy and complexity
@@ -154,8 +154,8 @@ filter rather than the brain.
   pushing a signal through the extractor. The vector width therefore cannot
   depend on epoch length, and the global random state is never touched.
 - **Sample entropy** uses k-d tree neighbour counting rather than an O(n²)
-  double loop. Values are identical to the textbook implementation — verified in
-  `tests/test_features.py` against a direct reference — and roughly 40× faster.
+  double loop. Values are identical to the textbook implementation (checked in
+  `tests/test_features.py` against a direct reference) and roughly 40× faster.
 - **Wavelet depth is validated, not clamped.** An epoch too short for the
   configured decomposition level raises rather than silently producing a shorter
   feature vector.
@@ -193,7 +193,7 @@ stronger univariate association with the outcome.
 
 A feature selected in one split but not another is noise that happened to be
 useful once. `selection_stability()` repeats the whole funnel on **subject-level**
-resamples — not row-level, for the same reason the CV is grouped — and reports
+resamples (not row-level, for the same reason the CV is grouped) and reports
 per-feature selection frequency plus the Nogueira et al. (2018) stability index,
 which corrects for subset size and chance agreement. Report the frequencies
 alongside any importance ranking.
@@ -257,9 +257,16 @@ prevalence.
   scikit-learn's `permutation_test_score` with `groups` for this: it permutes
   labels within groups, and when the label is constant inside each subject
   that permutation changes nothing.
+- **No-learning baseline** (`validation.baseline_feature`, default
+  `sp_ratio_theta_alpha`). The per-recording median of one named feature is
+  used directly as the score, with a subject-level bootstrap interval. Nothing
+  is fitted and the sign is not taken from the data, so an AUC below 0.5 means
+  the feature is lower in the positive class. On ds004504 this one ratio
+  matched the trained models, which is the reason it is in every report: a
+  model should be compared with it, not only with 0.5.
 
 Report the interval, not just the point estimate. On a 20-subject cohort a
-95 % CI on AUC routinely spans 0.4 — that width is the finding.
+95 % CI on AUC routinely spans 0.4, and that width is the finding.
 
 ---
 
@@ -268,7 +275,7 @@ Report the interval, not just the point estimate. On a 20-subject cohort a
 Global and local SHAP attribution, using the cheapest **exact** explainer for
 the model family: `TreeExplainer` for forests and boosting, `LinearExplainer`
 for linear models, and the model-agnostic permutation explainer only as a
-fallback. This matters for accuracy as well as speed — the generic explainer
+fallback. This matters for accuracy as well as speed: the generic explainer
 only approximates Shapley values.
 
 Grouped permutation importance is also available, permuting whole subjects

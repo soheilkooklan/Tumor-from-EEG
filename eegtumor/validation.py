@@ -69,6 +69,7 @@ from .modeling import MODEL_SPECS, aggregate_scores, build_pipeline, calibrate
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "single_feature_baseline",
     "ValidationResult", "nested_cross_validate", "compute_metrics",
     "bootstrap_ci", "delong_test", "mcnemar_test", "permutation_test",
     "sensitivity_at_specificity", "split_groups", "permutation_null",
@@ -362,7 +363,7 @@ class ValidationResult:
 
 
 def _tune(model_name: str, cfg: AnalysisConfig, X, y, groups,
-          feature_names, seed: int) -> dict:
+          feature_names, seed: int, memory=None) -> dict:
     """Inner-loop hyper-parameter search. Returns the best parameter dict."""
     spec = MODEL_SPECS[model_name]
     if cfg.validation.optimisation == "none":
@@ -380,7 +381,8 @@ def _tune(model_name: str, cfg: AnalysisConfig, X, y, groups,
         for tr, va in inner.split(X, y, groups):
             if len(np.unique(y[tr])) < 2 or len(np.unique(y[va])) < 2:
                 continue
-            pipe = build_pipeline(model_name, cfg, feature_names, params, seed)
+            pipe = build_pipeline(model_name, cfg, feature_names, params, seed,
+                                  memory=memory)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 pipe.fit(X[tr], y[tr])
@@ -443,6 +445,25 @@ def nested_cross_validate(X: np.ndarray, index: Sequence[dict],
     total_steps = len(model_names) * cfg.validation.n_repeats * outer_folds
     step = 0
 
+    import shutil
+    import tempfile
+    from joblib import Memory
+    cache_dir = tempfile.mkdtemp(prefix="eegtumor_cache_")
+    memory = Memory(cache_dir, verbose=0)
+    try:
+        results = _nested_loop(X, index, cfg, feature_names, model_names,
+                               y_row, groups_row, outer_folds, total_steps,
+                               progress, intervals, memory)
+    finally:
+        shutil.rmtree(cache_dir, ignore_errors=True)
+    return results
+
+
+def _nested_loop(X, index, cfg, feature_names, model_names, y_row, groups_row,
+                 outer_folds, total_steps, progress, intervals, memory):
+    results: Dict[str, ValidationResult] = {}
+    step = 0
+
     for model_name in model_names:
         fold_metrics: List[Dict[str, float]] = []
         best_params: List[dict] = []
@@ -469,7 +490,7 @@ def nested_cross_validate(X: np.ndarray, index: Sequence[dict],
                     continue
 
                 params = _tune(model_name, cfg, X[tr], y_row[tr], groups_row[tr],
-                               feature_names, seed + fold)
+                               feature_names, seed + fold, memory)
                 best_params.append(params)
 
                 pipe = build_pipeline(model_name, cfg, feature_names, params,
@@ -561,3 +582,36 @@ def permutation_null(X: np.ndarray, index: Sequence[dict], cfg: AnalysisConfig,
     out["model"] = model_name
     return out
 
+
+
+def single_feature_baseline(X: np.ndarray, index: Sequence[dict],
+                            feature_names: Sequence[str], feature: str,
+                            n_iterations: int = 2000, alpha: float = 0.05,
+                            random_state: int = 42) -> Optional[dict]:
+    """ROC-AUC of one named feature used directly as the score, no learning.
+
+    Each recording gets the median of the feature over its rows. Nothing is
+    fitted and the sign is not chosen from the data, so the number carries no
+    optimism; an AUC below 0.5 means the feature is lower in the positive
+    class. A trained model that does not beat this has learned nothing the
+    feature did not already say.
+    """
+    if feature not in feature_names:
+        return None
+    col = np.asarray(X, dtype=float)[:, list(feature_names).index(feature)]
+    rec = np.array([r["recording_id"] for r in index])
+    keep = [i for i, r in enumerate(index) if r.get("label") not in (None, "")]
+    rec_ids = list(dict.fromkeys(rec[keep]))
+    first = {}
+    for i in keep:
+        first.setdefault(rec[i], i)
+    scores = np.array([np.nanmedian(col[rec == r]) for r in rec_ids])
+    labels = np.array([int(index[first[r]]["label"]) for r in rec_ids])
+    subj = np.array([index[first[r]]["subject_id"] for r in rec_ids])
+    ok = np.isfinite(scores)
+    if ok.sum() < 4 or len(np.unique(labels[ok])) < 2:
+        return None
+    point, lo, hi = bootstrap_ci(labels[ok], scores[ok], "roc_auc", n_iterations,
+                                 alpha, random_state, groups=subj[ok])
+    return {"feature": feature, "roc_auc": float(point), "ci_low": float(lo),
+            "ci_high": float(hi), "n_recordings": int(ok.sum())}

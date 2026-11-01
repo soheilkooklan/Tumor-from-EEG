@@ -55,6 +55,7 @@ References
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -334,6 +335,43 @@ def assess_epoch(x: np.ndarray, fs: float, cfg: PreprocessingConfig,
 # Orchestration
 # ---------------------------------------------------------------------------
 
+_NON_EEG = re.compile(r"(ECG|EKG|EOG|EMG|RESP|PHOTIC|STATUS|TRIG|EVENT|ANNOT|SPO2|"
+                      r"PULSE|PLETH|DC\d*$|^X\d+$|^E$|^BP\d*$)", re.IGNORECASE)
+_REFERENCE = {"A1", "A2", "M1", "M2", "REF", "GND"}
+
+
+def select_channels(rec: Recording, cfg: PreprocessingConfig) -> Recording:
+    """Keep the scalp EEG channels the configuration asks for.
+
+    Runs first, before resampling and before the common average reference.
+    The names dropped are logged and stored in the recording metadata.
+    """
+    names = list(rec.channel_names)
+    if cfg.channels == "all":
+        keep = list(range(len(names)))
+    elif cfg.channels == "scalp":
+        keep = [i for i, n in enumerate(names)
+                if not _NON_EEG.search(n) and n.upper() not in _REFERENCE]
+    else:
+        wanted = [str(c).upper() for c in cfg.channels]
+        keep = [i for i, n in enumerate(names) if n.upper() in wanted]
+        missing = sorted(set(wanted) - {names[i].upper() for i in keep})
+        if missing:
+            raise ValueError(f"{rec.recording_id}: requested channels not found: {missing}")
+    if not keep:
+        raise ValueError(f"{rec.recording_id}: no channels left after selection "
+                         f"(had {names})")
+    dropped = [n for i, n in enumerate(names) if i not in set(keep)]
+    if not dropped:
+        return rec
+    logger.info("%s: dropping non-scalp channels %s", rec.recording_id, dropped)
+    return Recording(data=rec.data[keep], channel_names=[names[i] for i in keep],
+                     sampling_rate=rec.sampling_rate, subject_id=rec.subject_id,
+                     recording_id=rec.recording_id, label=rec.label,
+                     source_path=rec.source_path,
+                     metadata={**rec.metadata, "dropped_channels": dropped})
+
+
 def preprocess_recording(rec: Recording, cfg: PreprocessingConfig) -> EpochedRecording:
     """Full recording-level pipeline.
 
@@ -347,7 +385,10 @@ def preprocess_recording(rec: Recording, cfg: PreprocessingConfig) -> EpochedRec
       7. epoch         - fixed duration in seconds
       8. QC            - per epoch and channel, with recorded reasons
       9. normalise     - last, per epoch, so it cannot leak across epochs
+
+    Channel selection (scalp EEG only, by default) happens before all of it.
     """
+    rec = select_channels(rec, cfg)
     x = rec.data.copy()
 
     x = resample_signal(x, rec.sampling_rate, cfg.target_sampling_rate)

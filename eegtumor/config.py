@@ -114,7 +114,19 @@ class PreprocessingConfig:
     # Referencing
     reference: str = "average"   # none | average
 
+    # Which channels count as scalp EEG. Clinical EDF files often carry ECG,
+    # EOG, ear references and trigger channels, all typed as EEG. Left in, they
+    # enter the common average reference and spread cardiac signal into every
+    # scalp channel, and they become feature rows of their own.
+    #   scalp  : drop known non-EEG and reference channels (default)
+    #   all    : keep every channel (old behaviour)
+    #   a list : keep exactly these names, after 10-20 harmonisation
+    channels: object = "scalp"
+
     def validate(self) -> None:
+        if not (self.channels in ("scalp", "all") or
+                (isinstance(self.channels, (list, tuple)) and self.channels)):
+            raise ConfigError("channels must be 'scalp', 'all' or a non-empty list of names")
         if self.target_sampling_rate <= 0:
             raise ConfigError("target_sampling_rate must be positive")
         nyq = 0.5 * self.target_sampling_rate
@@ -249,6 +261,10 @@ class SelectionConfig:
     mutual_information_keep: Optional[int] = None   # None = keep all
     embedded_method: Optional[str] = "elasticnet"   # elasticnet | rf | None
     max_features: Optional[int] = 30
+    # The embedded and cap stages fit a model only to rank features. Above this
+    # many training rows they use a stratified sample of this size, which keeps
+    # a fold from taking minutes on cohorts with ~100k epoch-channel rows.
+    ranking_max_rows: Optional[int] = 20000
     stability_repeats: int = 20
     stability_threshold: float = 0.6                 # selection frequency
 
@@ -284,6 +300,7 @@ class ValidationConfig:
     bootstrap_iterations: int = 2000
     permutation_tests: int = 0               # subject-level label-permutation null; 0 = off
     permutation_model: str = "ElasticNetLogistic"
+    baseline_feature: Optional[str] = "sp_ratio_theta_alpha"   # no-learning reference; None = off
     alpha: float = 0.05
 
     def validate(self) -> None:

@@ -55,9 +55,11 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Recording", "Cohort", "read_recording", "load_cohort", "CohortError"]
+__all__ = ["Recording", "RecordingStub", "Cohort", "read_recording", "read_header",
+           "load_cohort", "ensure_loaded", "CohortError"]
 
-SUPPORTED_SUFFIXES = {".edf", ".bdf", ".csv", ".tsv", ".mat", ".npy", ".npz"}
+SUPPORTED_SUFFIXES = {".edf", ".bdf", ".set", ".vhdr", ".fif",
+                      ".csv", ".tsv", ".mat", ".npy", ".npz"}
 
 # Standard 10-20 names, used to normalise the many spellings found in the wild
 # ("EEG FP1-REF", "Fp1-A1", "fp1"). Recognition is best-effort and never fatal.
@@ -127,6 +129,51 @@ class Recording:
         return (f"{self.recording_id} [subject {self.subject_id}, {lab}] "
                 f"{self.n_channels} ch, {self.duration_seconds:.1f} s @ "
                 f"{self.sampling_rate:g} Hz")
+
+
+@dataclass
+class RecordingStub:
+    """Header-only stand-in for a Recording.
+
+    Holds everything the cohort audit needs (channels, rate, duration, labels)
+    without the signal. `load()` reads the file when the signal is needed, so a
+    cohort of hundreds of long recordings does not have to fit in memory.
+    """
+
+    channel_names: List[str]
+    sampling_rate: float
+    n_samples: int
+    subject_id: str
+    recording_id: str
+    label: Optional[int] = None
+    source_path: Optional[str] = None
+    metadata: Dict[str, object] = field(default_factory=dict)
+    manifest_rate: Optional[float] = None
+
+    @property
+    def n_channels(self) -> int:
+        return len(self.channel_names)
+
+    @property
+    def duration_seconds(self) -> float:
+        return self.n_samples / self.sampling_rate
+
+    def load(self) -> "Recording":
+        rec = read_recording(self.source_path, self.subject_id, self.recording_id,
+                             self.label, self.manifest_rate)
+        rec.metadata.update(self.metadata)
+        return rec
+
+    def describe(self) -> str:
+        lab = "unlabelled" if self.label is None else f"label={self.label}"
+        return (f"{self.recording_id} [subject {self.subject_id}, {lab}] "
+                f"{self.n_channels} ch, {self.duration_seconds:.1f} s @ "
+                f"{self.sampling_rate:g} Hz (not loaded)")
+
+
+def ensure_loaded(rec) -> "Recording":
+    """Return a Recording with its signal, loading a stub if necessary."""
+    return rec.load() if isinstance(rec, RecordingStub) else rec
 
 
 @dataclass
@@ -260,19 +307,34 @@ def harmonise_channel_name(raw: str) -> str:
 # Readers
 # ---------------------------------------------------------------------------
 
-def _read_edf(path: Path) -> Tuple[np.ndarray, List[str], float, dict]:
+_MNE_READERS = {".edf": "read_raw_edf", ".bdf": "read_raw_bdf",
+                ".set": "read_raw_eeglab", ".vhdr": "read_raw_brainvision",
+                ".fif": "read_raw_fif"}
+
+
+def _read_mne(path: Path) -> Tuple[np.ndarray, List[str], float, dict]:
+    """EDF, BDF, EEGLAB .set, BrainVision .vhdr and FIF, all through MNE.
+
+    These formats store the sampling rate and physical units, so nothing is
+    guessed. EEGLAB files are the usual BIDS format on OpenNeuro.
+    """
     try:
         import mne
     except ImportError as exc:                                # pragma: no cover
-        raise ImportError("reading EDF/BDF requires mne:  pip install mne") from exc
+        raise ImportError(f"reading {path.suffix} requires mne:  pip install mne") from exc
 
-    reader = mne.io.read_raw_bdf if path.suffix.lower() == ".bdf" else mne.io.read_raw_edf
+    reader = getattr(mne.io, _MNE_READERS[path.suffix.lower()])
     raw = reader(str(path), preload=True, verbose="ERROR")
-    raw.pick("eeg") if len(raw.copy().pick("eeg").ch_names) else None
+    if len(raw.copy().pick("eeg").ch_names):
+        raw.pick("eeg")
     data = raw.get_data() * 1e6            # MNE stores volts; we work in microvolts
     names = [harmonise_channel_name(n) for n in raw.ch_names]
-    meta = {"edf_meas_date": str(raw.info.get("meas_date")), "units": "uV"}
+    meta = {"meas_date": str(raw.info.get("meas_date")), "units": "uV",
+            "reader": _MNE_READERS[path.suffix.lower()]}
     return data, names, float(raw.info["sfreq"]), meta
+
+
+_read_edf = _read_mne                      # old name, kept for callers
 
 
 def _read_delimited(path: Path, sep: str) -> Tuple[np.ndarray, List[str], dict]:
@@ -328,6 +390,34 @@ def _read_numpy(path: Path) -> Tuple[np.ndarray, List[str], dict]:
     return arr, [f"ch{i}" for i in range(arr.shape[0])], {"units": "unknown"}
 
 
+def read_header(path: str, subject_id: str, recording_id: Optional[str] = None,
+                label: Optional[int] = None,
+                sampling_rate: Optional[float] = None) -> RecordingStub:
+    """Read only what the audit needs. Cheap for MNE formats; other formats have
+    no separate header, so they are read once and the signal is dropped."""
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(p)
+    suffix = p.suffix.lower()
+    if suffix in _MNE_READERS:
+        import mne
+        raw = getattr(mne.io, _MNE_READERS[suffix])(str(p), preload=False, verbose="ERROR")
+        if len(raw.copy().pick("eeg").ch_names):
+            raw.pick("eeg")
+        names = [harmonise_channel_name(n) for n in raw.ch_names]
+        fs, n = float(raw.info["sfreq"]), int(raw.n_times)
+    else:
+        rec = read_recording(path, subject_id, recording_id, label, sampling_rate)
+        names, fs, n = rec.channel_names, rec.sampling_rate, rec.data.shape[1]
+    if not str(subject_id).strip():
+        raise CohortError(f"{p.name}: subject_id is empty")
+    return RecordingStub(channel_names=names, sampling_rate=fs, n_samples=n,
+                         subject_id=str(subject_id),
+                         recording_id=recording_id or p.stem,
+                         label=None if label is None else int(label),
+                         source_path=str(p), manifest_rate=sampling_rate)
+
+
 def read_recording(
     path: str,
     subject_id: str,
@@ -349,8 +439,8 @@ def read_recording(
         raise ValueError(f"unsupported format '{suffix}' (supported: "
                          f"{sorted(SUPPORTED_SUFFIXES)})")
 
-    if suffix in {".edf", ".bdf"}:
-        data, names, fs, meta = _read_edf(p)
+    if suffix in _MNE_READERS:
+        data, names, fs, meta = _read_mne(p)
         if sampling_rate and abs(sampling_rate - fs) > 1e-6:
             logger.warning("%s: manifest says %g Hz but the file header says %g Hz; "
                            "trusting the header", p.name, sampling_rate, fs)
@@ -399,7 +489,8 @@ def read_recording(
 MANIFEST_COLUMNS = ("path", "subject_id", "label")
 
 
-def load_cohort(manifest_path: str, root: Optional[str] = None) -> Cohort:
+def load_cohort(manifest_path: str, root: Optional[str] = None,
+                lazy: bool = False) -> Cohort:
     """Load every recording listed in a CSV manifest.
 
     The manifest must have columns: path, subject_id, label
@@ -413,6 +504,9 @@ def load_cohort(manifest_path: str, root: Optional[str] = None) -> Cohort:
     data/s01_a.edf,S01,0,,siteA
     data/s01_b.edf,S01,0,,siteA
     data/s02_a.csv,S02,1,250,siteB
+
+    With `lazy=True` only file headers are read and each entry is a
+    `RecordingStub`; call `ensure_loaded()` to get the signal.
     """
     import pandas as pd
 
@@ -436,7 +530,8 @@ def load_cohort(manifest_path: str, root: Optional[str] = None) -> Cohort:
         fs = row.get("sampling_rate")
         fs = None if (fs is None or (isinstance(fs, float) and np.isnan(fs))) else float(fs)
         try:
-            rec = read_recording(
+            reader = read_header if lazy else read_recording
+            rec = reader(
                 str(full),
                 subject_id=str(row["subject_id"]),
                 recording_id=str(row["recording_id"]) if "recording_id" in manifest.columns

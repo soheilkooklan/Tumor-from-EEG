@@ -49,6 +49,8 @@ def main(argv=None) -> int:
                    help=f"subset of {available_models()}")
     r.add_argument("--permutations", type=int, default=None,
                    help="subject-level permutation null, N permutations (slow)")
+    r.add_argument("--jobs", type=int, default=1,
+                   help="parallel processes for feature extraction")
 
     a = sub.add_parser("audit", help="cohort design audit only")
     a.add_argument("--manifest", required=True)
@@ -58,6 +60,7 @@ def main(argv=None) -> int:
     f.add_argument("--manifest", required=True)
     f.add_argument("--config")
     f.add_argument("--out", default="results")
+    f.add_argument("--jobs", type=int, default=1)
 
     d = sub.add_parser("dict", help="print the feature dictionary as CSV")
     d.add_argument("--config")
@@ -73,7 +76,7 @@ def main(argv=None) -> int:
             p.error(f"unknown model(s) {unknown}. Available: {available_models()}")
 
     if args.command == "audit":
-        cohort = load_cohort(args.manifest, getattr(args, "data_root", None))
+        cohort = load_cohort(args.manifest, getattr(args, "data_root", None), lazy=True)
         for k, v in cohort.summary().items():
             print(f"{k:28s} {v}")
         warn = cohort.audit()
@@ -89,8 +92,8 @@ def main(argv=None) -> int:
 
     if args.command == "features":
         cfg = _load_cfg(args.config)
-        cohort = load_cohort(args.manifest)
-        X, names, index = extract_cohort_features(cohort, cfg)
+        cohort = load_cohort(args.manifest, lazy=True)
+        X, names, index = extract_cohort_features(cohort, cfg, n_jobs=args.jobs)
         out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
         import pandas as pd
         pd.concat([pd.DataFrame(index), pd.DataFrame(X, columns=names)], axis=1) \
@@ -103,7 +106,8 @@ def main(argv=None) -> int:
         cfg.validation.permutation_tests = args.permutations
         cfg.validation.validate()
     art = run_analysis(args.manifest, cfg, args.out,
-                       models=args.models, data_root=args.data_root)
+                       models=args.models, data_root=args.data_root,
+                       n_jobs=args.jobs)
     print(f"\nreport: {art.report_path}")
     for name, res in sorted(art.results.items(), key=lambda kv: -kv[1].mean("roc_auc")):
         print("  " + res.report_line())

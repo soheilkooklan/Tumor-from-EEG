@@ -35,11 +35,33 @@ science.
 The software computes 81 documented qEEG biomarkers in five domains, selects
 among them inside each training fold, and evaluates classifiers with repeated,
 subject-disjoint, nested cross-validation, calibration, subject-level bootstrap
-intervals and an optional subject-level permutation null.
+intervals, a no-learning single-feature baseline and an optional
+subject-level permutation null.
 
 It does not tell you that someone has a brain tumour. There is no public EEG
 dataset with imaging-confirmed tumour labels, so that application is an
 untested hypothesis. See [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+
+## Results on real recordings
+
+Version 2.2.0 was run on two public corpora with confirmed labels for other
+conditions. Pooled recording-level ROC-AUC from subject-disjoint nested
+cross-validation, with subject-level bootstrap 95 % intervals:
+
+| Task | n | Elastic net | Theta/alpha alone, no learning |
+|---|---|---|---|
+| Alzheimer's vs controls (ds004504) | 65 | 0.845 [0.742, 0.933] | 0.867 [0.775, 0.951] |
+| Frontotemporal dementia vs controls (ds004504) | 52 | 0.847 [0.725, 0.946] | 0.823 [0.696, 0.934] |
+| Abnormal vs normal clinical EEG (NMT-4K subset) | 240 | 0.791 [0.733, 0.845] | 0.724 [0.659, 0.784] |
+
+On the dementia tasks the trained model does no better than one band ratio.
+For a random forest, a random epoch split of the same ds004504 data gave 0.93
+instead of 0.83 for
+Alzheimer's, and a 50-run subject-level permutation null never exceeded 0.71.
+On NMT-4K the recording year can be predicted from normal EEG alone (0.70),
+so a design that collects cases and controls in different years would be
+measuring the year. Details, and six bugs these runs exposed, are in
+[docs/REAL_DATA.md](docs/REAL_DATA.md).
 
 ## Screenshots
 
@@ -60,7 +82,7 @@ The screenshots are captured from the running application by
 git clone https://github.com/soheilkooklan/Tumor-from-EEG.git
 cd Tumor-from-EEG
 pip install -r requirements.txt
-pytest -q                     # 40 tests, all should pass
+pytest -q                     # all tests should pass
 ```
 
 Python 3.10 or newer. Only the core block of `requirements.txt` is needed to
@@ -101,6 +123,17 @@ shuffled between subjects and reports where the observed score sits in that
 null. Each permutation is a full cross-validation run, so tuning is switched
 off inside it, for the observed score as well as the permuted ones.
 
+Real data. `examples/openneuro_ds004504.py` downloads OpenNeuro ds004504
+(resting-state EEG from 36 people with Alzheimer's disease, 23 with
+frontotemporal dementia and 29 controls, CC0) and writes manifests for
+AD vs CN, FTD vs CN and AD vs FTD:
+
+```bash
+python examples/openneuro_ds004504.py --out data/ds004504
+python -m eegtumor.cli run --manifest data/ds004504/cohort_ad_vs_cn.csv \
+       --config configs/quick.yaml --jobs 2 --out results/ad_vs_cn
+```
+
 Graphical interface:
 
 ```bash
@@ -120,10 +153,19 @@ recordings/p02_a.edf,P02,1,,,siteA,61,M
 data/control_07.csv,C07,0,,250,siteB,49,F
 ```
 
-Supported formats are EDF, BDF, CSV, TSV, MAT, NPY and NPZ. The sampling rate is
-read from EDF and BDF headers and must be given in the manifest for the other
-formats. It cannot be inferred, and a wrong value invalidates every spectral
-feature without any error.
+Supported formats are EDF, BDF, EEGLAB `.set`, BrainVision `.vhdr`, FIF, CSV,
+TSV, MAT, NPY and NPZ. The first five are read through MNE and carry their own
+sampling rate; for the others it must be given in the manifest. It cannot be
+inferred, and a wrong value invalidates every spectral feature without any
+error.
+
+Recordings are read lazily: the run reads file headers for the audit, then
+loads one recording at a time for feature extraction and releases it, so the
+cohort does not have to fit in memory. `--jobs N` extracts N recordings in
+parallel; results do not depend on N. If you call
+`extract_cohort_features(..., n_jobs=N)` from your own script, put the call
+under `if __name__ == "__main__":`, because the workers are spawned and
+re-import the script.
 
 Always audit first:
 
@@ -229,9 +271,9 @@ eegtumor/
   cli.py             command-line entry point
   gui.py             seven-tab graphical interface
 configs/             default.yaml and quick.yaml
-tests/               40 tests: estimator correctness and leakage regression
+tests/               estimator correctness, readers, leakage regression
 docs/                METHODS, DATASETS, LIMITATIONS, MIGRATION
-examples/            synthetic cohort generator, including the null control
+examples/            synthetic cohort generator (null control included), ds004504 download
 tools/               screenshot capture
 legacy/              version 1, preserved
 ```
@@ -267,9 +309,10 @@ subject-disjoint splits. The TUH Abnormal EEG Corpus is the obvious choice.
 Published accuracy on its evaluation split for the normal-versus-abnormal task
 mostly falls between about 75 and 90 %, with a few recent reports a little above
 90 % (Zhu, Canham and Western, 2023), on far more data than a typical tumour
-study. Keep that in mind when reading a
-claim of 95 % tumour detection from a few dozen recordings. See
-[docs/DATASETS.md](docs/DATASETS.md).
+study. Keep that in mind when reading a claim of 95 % tumour detection from a
+few dozen recordings. TUH access needs an institutional sponsor. Two corpora
+that anyone can download, OpenNeuro ds004504 and NMT-4K-EEG, have scripts in
+`examples/`. See [docs/DATASETS.md](docs/DATASETS.md).
 
 ## Contributing
 
@@ -297,7 +340,7 @@ Citation metadata is in [CITATION.cff](CITATION.cff). In text:
 
 > Kooklan, S. (2026). *Tumor-from-EEG: a reproducible workbench for quantitative
 > EEG biomarker extraction and subject-disjoint machine-learning evaluation*
-> (Version 2.1.0) [Computer software].
+> (Version 2.2.0) [Computer software].
 > https://github.com/soheilkooklan/Tumor-from-EEG
 
 ## References

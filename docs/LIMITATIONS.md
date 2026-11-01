@@ -22,7 +22,7 @@ modality.
 stroke, encephalopathy, migraine, post-ictal states, drowsiness and sedation.
 Any classifier trained on slowing features will detect *abnormality*, not
 *tumour*, unless the control group is matched on everything else that causes
-slowing — which is very hard.
+slowing, which is very hard.
 
 **Entropy and fractal features are compromised by their own preprocessing.**
 They estimate scaling behaviour; band-pass filtering removes scaling behaviour
@@ -32,8 +32,8 @@ exploratory in the feature dictionary. A result resting mainly on them deserves
 more scepticism than one resting on band power.
 
 **No spatial information is used.** Features are computed per channel and
-aggregated. Lateralisation and focality — the properties that make EEG slowing
-*suggestive of a lesion* rather than merely abnormal — are not modelled.
+aggregated. Lateralisation and focality, the properties that make EEG slowing
+*suggestive of a lesion* and not merely abnormal, are not modelled.
 Connectivity and graph features are listed as future work, not implemented.
 
 **Relative band powers are not independent.** They sum to one by construction.
@@ -111,7 +111,7 @@ the usual length guidance. At 8 s epochs and 250 Hz this limits usable scales to
 architectures need thousands of labelled recordings; on research-scale data they
 overfit while looking impressive in-sample. If a large labelled corpus becomes
 available, a separate module operating on raw or time-frequency input would be
-the right addition — not a bolt-on to this feature pipeline.
+the right addition. A bolt-on to this feature pipeline would not.
 
 ---
 
@@ -140,7 +140,7 @@ In rough order of value:
 1. A cohort with imaging-confirmed labels and matched controls.
 2. Validation of the whole pipeline on TUAB, published with the confidence
    intervals, so the machinery has a known operating point.
-3. Spatial and connectivity features — lateralisation is the part of the
+3. Spatial and connectivity features. Lateralisation is the part of the
    hypothesis currently not modelled at all.
 4. Independent replication on a second site.
 5. Comparison against a clinician reading the same recordings, which is the only

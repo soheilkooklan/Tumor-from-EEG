@@ -1,5 +1,71 @@
 # Changelog
 
+## [2.2.0] - 2026-11
+
+First release tested on real recordings: OpenNeuro ds004504 (Alzheimer's and
+frontotemporal dementia vs controls) and a balanced 240-recording subset of
+NMT-4K-EEG (normal vs abnormal clinical EEG). Results are in
+`docs/REAL_DATA.md`. Every change below came from running the package on that
+data.
+
+### Fixed
+
+- Non-EEG channels were treated as EEG. Clinical EDF files carry ECG, ear
+  references (A1, A2) and trigger channels, and MNE types them all as EEG.
+  They became feature rows, and they entered the common average reference,
+  which spreads cardiac signal into every scalp channel. A new
+  `preprocessing.channels` setting (default `scalp`) drops them before
+  resampling and referencing; `all` keeps the old behaviour and a list keeps
+  named channels only.
+- The whole cohort was read into memory before extraction. Ten-minute,
+  19-channel recordings take about 60 MB each, so 88 of them did not fit
+  comfortably in 7 GB. Runs now read headers only, load one recording at a
+  time and release it.
+
+- The elastic-net search range for C started at 1e-3. On ds004504 the tuner
+  chose a value within 1.7e-3 of that floor in 6 of 10 outer folds, i.e. it
+  was clipped. The range now starts at 1e-5.
+- The stability analysis ran feature selection on unscaled features while the
+  model pipeline ran it on scaled ones; the elastic-net stage is
+  scale-dependent, so the report described a different selection from the one
+  the model used. The stage now standardises internally, which makes the
+  selection invariant to any per-feature affine rescaling of its input.
+
+### Added
+
+- Readers for EEGLAB `.set` (the usual OpenNeuro format), BrainVision `.vhdr`
+  and FIF, through MNE.
+- `--jobs N` for parallel feature extraction (spawned processes); output is
+  identical for any N.
+- `examples/openneuro_ds004504.py`: downloads ds004504 and writes manifests for
+  AD vs CN, FTD vs CN and AD vs FTD.
+- `examples/nmt4k_subset.py`: pulls the 240 recordings listed in
+  `examples/nmt4k_subset240.csv` out of the 33 GB split NMT-4K archive with
+  HTTP range requests (about 1.9 GB) and writes a manifest.
+- A no-learning baseline in every run: one named feature
+  (`validation.baseline_feature`, default `sp_ratio_theta_alpha`), median per
+  recording, used directly as the score, with a subject-level bootstrap
+  interval. On ds004504 it matched the trained models (0.867 for AD vs CN),
+  which is why it is now printed next to them. Written to `baseline.json`.
+- `docs/REAL_DATA.md` with the real-data results and how to reproduce them.
+- Tests for the readers, lazy loading, parallel extraction, channel selection,
+  the ECG/reference interaction and the baseline.
+
+### Changed
+
+- Lempel-Ziv complexity uses an exhaustive LZ76 parse with substring search in
+  C. Counts are identical to the previous Kaspar-Schuster loop (checked on
+  8,560 signals and in the test suite) and it is about 12 times faster.
+  Feature extraction on a 10-minute 19-channel recording dropped from about
+  137 s to about 68 s on one core.
+- The model-based ranking stages of feature selection use a stratified sample
+  of at most `selection.ranking_max_rows` training rows (default 20,000).
+  One selection fit on 58,000 rows went from 169 s to about 30 s.
+- Nested cross-validation caches the fitted imputer, scaler and selection per
+  training split (joblib), so tuning trials share one selection fit. Results
+  are identical with and without the cache; a nested run was about 3 times
+  faster on the test cohort.
+
 ## [2.1.0] - 2026-10
 
 A correctness and honesty release. No change to the feature set.
@@ -92,7 +158,7 @@ Version 1 was measuring subject identity, not pathology.
   score and that same score was reported. Replaced with nested cross-validation.
 - **Five features were analytically constant.** Per-epoch z-scoring forced
   mean = 0 and SD = 1, making `mean`, `std`, `variance`, `rms` and
-  `hjorth_activity` identical for every row — 13 % of the feature space.
+  `hjorth_activity` identical for every row, 13 % of the feature space.
   Amplitude normalisation now defaults to `none`, and degenerate features are
   excluded automatically when it is enabled.
 - **Gamma power was measured through a filter that removed it.** The band-pass

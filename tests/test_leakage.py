@@ -272,3 +272,27 @@ def test_permutation_null_detects_a_real_effect():
     out = permutation_null(X, index, _fast_cfg(), names, "ElasticNetLogistic",
                            n_permutations=19, random_state=0)
     assert out["p_value"] <= 0.10, f"strong effect not detected: {out}"
+
+
+def test_selection_is_invariant_to_feature_scaling():
+    """The stability analysis feeds raw features to the funnel and the pipeline
+    feeds scaled ones. The selected set must not depend on that."""
+    rng = np.random.default_rng(21)
+    X = rng.normal(size=(400, 12))
+    y = (X[:, 0] + 0.5 * X[:, 3] + rng.normal(size=400) > 0).astype(int)
+    scale = 10.0 ** rng.uniform(-3, 3, size=12)
+    shift = rng.normal(0, 100, size=12)
+    names = [f"f{i}" for i in range(12)]
+    a = FeatureFunnel(max_features=5, feature_names=names, random_state=0).fit(X, y)
+    b = FeatureFunnel(max_features=5, feature_names=names, random_state=0).fit(X * scale + shift, y)
+    assert np.array_equal(a.support_, b.support_)
+
+
+def test_ranking_sample_is_stratified_and_deterministic():
+    y = np.array([0] * 900 + [1] * 100)
+    f = FeatureFunnel(ranking_max_rows=200, random_state=3)
+    r1, r2 = f._ranking_rows(y), f._ranking_rows(y)
+    assert np.array_equal(r1, r2)
+    assert len(r1) == 200
+    assert abs(y[r1].mean() - 0.1) < 0.01
+    assert len(FeatureFunnel(ranking_max_rows=None)._ranking_rows(y)) == 1000

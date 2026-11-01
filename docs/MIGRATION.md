@@ -72,7 +72,7 @@ rate first.
 
 1–30 Hz → 0.5–45 Hz, so the gamma band lies inside it. If you keep a 30 Hz
 low-pass you must also remove the gamma band from the configuration, or the
-config validator will refuse to run — which is the intended behaviour.
+config validator will refuse to run, which is the intended behaviour.
 
 ### Feature names changed
 
